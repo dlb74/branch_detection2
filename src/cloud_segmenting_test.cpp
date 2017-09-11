@@ -73,7 +73,11 @@ struct Vec3
     float z;
 };
 
-float CylTest_CapsFirst( const Vec3 & pt1, const Vec3 & pt2, float lengthsq, float radius_sq, const Vec3 & testpt )
+float Calculate_Vector_Length_Squared(Vec3 vector) {
+    return (vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z);
+}
+
+float CylTest_CapsFirst( const Vec3 & pt1, const Vec3 & pt2, float radius_sq, const Vec3 & testpt )
 {
     float dx, dy, dz;	// vector d  from line segment point 1 to point 2
     float pdx, pdy, pdz;	// vector pd from point 1 to test point
@@ -89,6 +93,8 @@ float CylTest_CapsFirst( const Vec3 & pt1, const Vec3 & pt2, float lengthsq, flo
 
     // Dot the d and pd vectors to see if point lies behind the
     // cylinder cap at pt1.x, pt1.y, pt1.z
+
+    float lengthsq = Calculate_Vector_Length_Squared(pt2);
 
     dot = pdx * dx + pdy * dy + pdz * dz;
 
@@ -167,9 +173,9 @@ void Frame_Filter( pcl::PointCloud<PointT>::Ptr cloud,
 
 void Lengthen_Cylinder(pcl::ModelCoefficients::Ptr coefficients_cylinder) {
 
-    coefficients_cylinder->values[3] *= 2;//x2  + (2 * x_delta);
-    coefficients_cylinder->values[4] *= 2;//y1 + (2 * y_delta);
-    coefficients_cylinder->values[5] *= 2;//z1 + (2 * z_delta);
+    coefficients_cylinder->values[3] *= 2;
+    coefficients_cylinder->values[4] *= 2;
+    coefficients_cylinder->values[5] *= 2;
 
     coefficients_cylinder->values[6] *= 1.5;
 }
@@ -242,6 +248,25 @@ int main(int argc, char **argv)
     Cylinder_Seg( cloud_filtered, trunk_normals,
                   coefficients_cylinder_trunk, cloud_after_trunk_seg, TRUNKSEG_NORMDIST_WEIGHT,
                   TRUNKSEG_CYLDIST_THRESH, TRUNKSEG_CYLRAD_MIN, TRUNKSEG_CYLRAD_MAX, pcl::SACMODEL_CYLINDER);
+
+    Vec3 point1 = {coefficients_cylinder_trunk->values[0], coefficients_cylinder_trunk->values[1], coefficients_cylinder_trunk->values[2]};
+    Vec3 point2 = {coefficients_cylinder_trunk->values[0] + coefficients_cylinder_trunk->values[3],
+                   coefficients_cylinder_trunk->values[1] + coefficients_cylinder_trunk->values[4],
+                   coefficients_cylinder_trunk->values[2] + coefficients_cylinder_trunk->values[5]};
+
+    //std::vector<pcl::PointXYZ> cloud_points = cloud_filtered->points;
+    std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ> > cloud_points = cloud_filtered->points;
+
+    for (int i = 0; i < cloud_points.size(); i++) {
+
+        Vec3 cloudPoint = {cloud_points[i].x, cloud_points[i].y, cloud_points[i].z};
+        if (CylTest_CapsFirst(point1, point2, coefficients_cylinder_trunk->values[6] * coefficients_cylinder_trunk->values[6], cloudPoint) != -1.0f) {
+            cloud_points.erase(index);
+            i--;
+
+        }
+
+    }
 
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
     viewer->initCameraParameters( );
