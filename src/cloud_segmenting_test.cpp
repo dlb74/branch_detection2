@@ -73,67 +73,6 @@ struct Vec3
     float z;
 };
 
-float Calculate_Vector_Length_Squared(Vec3 vector) {
-    return ((vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z));
-}
-
-float CylTest_CapsFirst( const Vec3 & pt1, const Vec3 & pt2, float radius_sq, const Vec3 & testpt )
-{
-    float dx, dy, dz;	// vector d  from line segment point 1 to point 2
-    float pdx, pdy, pdz;	// vector pd from point 1 to test point
-    float dot, dsq;
-
-    dx = pt2.x - pt1.x;	// translate so pt1 is origin.  Make vector from
-    dy = pt2.y - pt1.y;     // pt1 to pt2.  Need for this is easily eliminated
-    dz = pt2.z - pt1.z;
-
-    pdx = testpt.x - pt1.x;		// vector from pt1 to test point.
-    pdy = testpt.y - pt1.y;
-    pdz = testpt.z - pt1.z;
-
-    // Dot the d and pd vectors to see if point lies behind the
-    // cylinder cap at pt1.x, pt1.y, pt1.z
-
-    float lengthsq = Calculate_Vector_Length_Squared(pt2);
-
-    dot = pdx * dx + pdy * dy + pdz * dz;
-
-    // If dot is less than zero the point is behind the pt1 cap.
-    // If greater than the cylinder axis line segment length squared
-    // then the point is outside the other end cap at pt2.
-
-    if( dot < 0.0f || dot > lengthsq )
-    {
-        return( -1.0f );
-    }
-    else
-    {
-        // Point lies within the parallel caps, so find
-        // distance squared from point to line, using the fact that sin^2 + cos^2 = 1
-        // the dot = cos() * |d||pd|, and cross*cross = sin^2 * |d|^2 * |pd|^2
-        // Carefull: '*' means mult for scalars and dotproduct for vectors
-        // In short, where dist is pt distance to cyl axis:
-        // dist = sin( pd to d ) * |pd|
-        // distsq = dsq = (1 - cos^2( pd to d)) * |pd|^2
-        // dsq = ( 1 - (pd * d)^2 / (|pd|^2 * |d|^2) ) * |pd|^2
-        // dsq = pd * pd - dot * dot / lengthsq
-        //  where lengthsq is d*d or |d|^2 that is passed into this function
-
-        // distance squared to the cylinder axis:
-
-        dsq = (pdx*pdx + pdy*pdy + pdz*pdz) - dot*dot/lengthsq;
-
-        if( dsq > radius_sq )
-        {
-            return( -1.0f );
-        }
-        else
-        {
-            return( dsq );		// return distance squared to axis
-        }
-    }
-}
-
 float Calculate_DotProduct(Vec3 a, Vec3 b) {
     float dx, dy, dz;
     dx = a.x * b.x;
@@ -142,7 +81,6 @@ float Calculate_DotProduct(Vec3 a, Vec3 b) {
 
     return (dx + dy + dz);
 }
-
 
 float Calculate_Magnitude(Vec3 vector) {
     return sqrt((vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z));
@@ -154,9 +92,7 @@ float CalculateAngle(Vec3 AB, Vec3 AC) {
     float magnitude_AC = Calculate_Magnitude(AC);
 
     return acos(AB_AC_dotProduct/(magnitude_AB*magnitude_AC));
-
 }
-
 
 float CalculateDistanceFromAxis(Vec3 point_A, Vec3 line, Vec3 point_B) {
     Vec3 BA = {point_A.x - point_B.x, point_A.y - point_B.y, point_A.z - point_B.z};
@@ -225,7 +161,6 @@ void DownSample( pcl::PointCloud<PointT>::Ptr cloud,
     sor.filter (*cloud_DownSampled);
 }
 
-
 /** PCL Frame Filtering */
 void Frame_Filter( pcl::PointCloud<PointT>::Ptr cloud,
                    pcl::PointCloud<PointT>::Ptr cloud_filtered )
@@ -243,9 +178,7 @@ void Lengthen_Cylinder(pcl::ModelCoefficients::Ptr coefficients_cylinder) {
     coefficients_cylinder->values[3] *= 2;
     coefficients_cylinder->values[4] *= 2;
     coefficients_cylinder->values[5] *= 2;
-
     coefficients_cylinder->values[6] *= 1.7;
-
 }
 
 void Setup_Second_Cylinder(pcl::ModelCoefficients::Ptr original_cylinder, pcl::ModelCoefficients::Ptr second_cylinder) {
@@ -256,7 +189,6 @@ void Setup_Second_Cylinder(pcl::ModelCoefficients::Ptr original_cylinder, pcl::M
     second_cylinder->values[3] = original_cylinder->values[3];
     second_cylinder->values[4] = original_cylinder->values[4];
     second_cylinder->values[5] = original_cylinder->values[5];
-
     second_cylinder->values[6] = original_cylinder->values[6] * 1.5;
 }
 
@@ -314,8 +246,6 @@ int main(int argc, char **argv)
     trunk_normals->points.resize(cloud_blob->size());
     pcl::PointCloud<PointT>::Ptr cloud_after_trunk_seg (new pcl::PointCloud<PointT> ());
 
-    string str = "";
-
     DownSample( cloud_blob, cloud_DownSampled );
     cloud_DownSampled->width = (int)cloud_DownSampled->points.size();
 
@@ -329,58 +259,34 @@ int main(int argc, char **argv)
                   coefficients_cylinder_trunk, cloud_after_trunk_seg, TRUNKSEG_NORMDIST_WEIGHT,
                   TRUNKSEG_CYLDIST_THRESH, TRUNKSEG_CYLRAD_MIN, TRUNKSEG_CYLRAD_MAX, pcl::SACMODEL_CYLINDER);
 
-    Vec3 point1 = {coefficients_cylinder_trunk->values[0], coefficients_cylinder_trunk->values[1], coefficients_cylinder_trunk->values[2]};
-    Vec3 point2 = {coefficients_cylinder_trunk->values[0] + coefficients_cylinder_trunk->values[3],
-                   coefficients_cylinder_trunk->values[1] + coefficients_cylinder_trunk->values[4],
-                   coefficients_cylinder_trunk->values[2] + coefficients_cylinder_trunk->values[5]};
-
     std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ> > cloud_points = cloud_filtered->points;
-    ROS_WARN("Hello %lu \n",  cloud_points.size());
 
-    int ij = 0;
     for (int i = 0; i < cloud_points.size(); i++) {
 
         Vec3 cloudPoint = {cloud_points[i].x, cloud_points[i].y, cloud_points[i].z};
         if (InsideCylinder(cloudPoint, coefficients_cylinder_trunk)) {
             cloud_points.erase(cloud_points.begin() + i);
             i--;
-            ij++;
 
         }
-
     }
-    //ROS_WARN("Hi %lu %d\n",  cloud_points.size(), ij);
 
     pcl::ModelCoefficients::Ptr coefficients_second_cylinder (new pcl::ModelCoefficients);
     coefficients_second_cylinder->values.resize (7);
     Setup_Second_Cylinder(coefficients_cylinder_trunk, coefficients_second_cylinder);
 
-    Vec3 second_cylinder_point1 = {coefficients_second_cylinder->values[0], coefficients_second_cylinder->values[1], coefficients_second_cylinder->values[2]};
-    Vec3 second_cylinder_point2 = {coefficients_second_cylinder->values[0] + coefficients_second_cylinder->values[3],
-                                   coefficients_second_cylinder->values[1] + coefficients_second_cylinder->values[4],
-                                   coefficients_second_cylinder->values[2] + coefficients_second_cylinder->values[5]};
-    ij = 0;
     for (int i = 0; i < cloud_points.size(); i++) {
 
         Vec3 cloudPoint = {cloud_points[i].x, cloud_points[i].y, cloud_points[i].z};
         if (!InsideCylinder(cloudPoint, coefficients_second_cylinder)) {
             cloud_points.erase(cloud_points.begin() + i);
             i--;
-            ij++;
 
         }
-
     }
-
-    ROS_WARN("Hi %lu %d\n",  cloud_points.size(), ij);
 
     pcl::PointCloud<PointT>::Ptr final_pointcloud (new pcl::PointCloud<PointT>);
     final_pointcloud->points = cloud_points;
-
-    ROS_WARN("Hello %lu \n",  final_pointcloud->points.size());
-
-    ROS_WARN("Hello %lu \n",  cloud_filtered->points.size());
-
 
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
     viewer->initCameraParameters( );
@@ -410,5 +316,4 @@ int main(int argc, char **argv)
     }
 
     return (0);
-
 }
