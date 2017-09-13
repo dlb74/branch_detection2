@@ -74,7 +74,7 @@ struct Vec3
 };
 
 float Calculate_Vector_Length_Squared(Vec3 vector) {
-    return (vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z);
+    return ((vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z));
 }
 
 float CylTest_CapsFirst( const Vec3 & pt1, const Vec3 & pt2, float radius_sq, const Vec3 & testpt )
@@ -134,6 +134,73 @@ float CylTest_CapsFirst( const Vec3 & pt1, const Vec3 & pt2, float radius_sq, co
     }
 }
 
+float Calculate_DotProduct(Vec3 a, Vec3 b) {
+    float dx, dy, dz;
+    dx = a.x * b.x;
+    dy = a.y * b.y;
+    dz = a.z * b.z;
+
+    return (dx + dy + dz);
+}
+
+
+float Calculate_Magnitude(Vec3 vector) {
+    return sqrt((vector.x * vector.x) + (vector.y * vector.y) + (vector.z * vector.z));
+}
+
+float CalculateAngle(Vec3 AB, Vec3 AC) {
+    float AB_AC_dotProduct = Calculate_DotProduct(AB, AC);
+    float magnitude_AB = Calculate_Magnitude(AB);
+    float magnitude_AC = Calculate_Magnitude(AC);
+
+    return acos(AB_AC_dotProduct/(magnitude_AB*magnitude_AC));
+
+}
+
+
+float CalculateDistanceFromAxis(Vec3 point_A, Vec3 line, Vec3 point_B) {
+    Vec3 BA = {point_A.x - point_B.x, point_A.y - point_B.y, point_A.z - point_B.z};
+    Vec3 BALineCross = {(BA.y * line.z) - (BA.z * line.y),
+                        (BA.z * line.x) - (BA.x * line.z),
+                        (BA.x * line.y) - (BA.y * line.x)};
+    float cross_magnitude = Calculate_Magnitude(BALineCross);
+    float line_magnitude = Calculate_Magnitude(line);
+    return (cross_magnitude/line_magnitude);
+}
+
+/**
+ * Checks if a point lies in a cylinder
+ * @param point_C the point to be checked
+ * @param coefficients_cylinder the cylinder which may or may not contain the point
+ * @return false if it is not in the cylinder, true if it is
+ */
+bool InsideCylinder(Vec3 point_C, pcl::ModelCoefficients::Ptr coefficients_cylinder_trunk) {
+    Vec3 point_A = {coefficients_cylinder_trunk->values[0], coefficients_cylinder_trunk->values[1], coefficients_cylinder_trunk->values[2]};
+    Vec3 point_B = {coefficients_cylinder_trunk->values[0] + coefficients_cylinder_trunk->values[3],
+                   coefficients_cylinder_trunk->values[1] + coefficients_cylinder_trunk->values[4],
+                   coefficients_cylinder_trunk->values[2] + coefficients_cylinder_trunk->values[5]};
+
+    Vec3 AB = {point_B.x - point_A.x, point_B.y - point_A.y, point_B.z - point_A.z};
+    Vec3 AC = {point_C.x - point_A.x, point_C.y - point_A.y, point_C.z - point_A.z};
+    Vec3 BC = {point_C.x - point_B.x, point_C.y - point_B.y, point_C.z - point_B.z};
+    Vec3 BA = {point_A.x - point_B.x, point_A.y - point_B.y, point_A.z - point_B.z};
+
+    float AB_AC_angle = CalculateAngle(AB, AC);
+    float BA_BC_angle = CalculateAngle(BA, BC);
+
+    if (AB_AC_angle > 3.1415 || AB_AC_angle < 0 || BA_BC_angle > 3.1415 || BA_BC_angle < 0) {
+        return false;
+    }
+
+    float distanceFromLine = CalculateDistanceFromAxis(point_A,  AB,  point_C);
+
+    if (distanceFromLine > coefficients_cylinder_trunk->values[6]) {
+        return false;
+    }else {
+        return true;
+    }
+}
+
 /** PCL Frame Normal Estimation */
 void Norm_Est( pcl::PointCloud<PointT>::Ptr cloud, pcl::PointCloud<PointNT>::Ptr cloud_normals, float normKSearchRadius )
 {
@@ -177,7 +244,20 @@ void Lengthen_Cylinder(pcl::ModelCoefficients::Ptr coefficients_cylinder) {
     coefficients_cylinder->values[4] *= 2;
     coefficients_cylinder->values[5] *= 2;
 
-    coefficients_cylinder->values[6] *= 1.5;
+    coefficients_cylinder->values[6] *= 1.7;
+
+}
+
+void Setup_Second_Cylinder(pcl::ModelCoefficients::Ptr original_cylinder, pcl::ModelCoefficients::Ptr second_cylinder) {
+
+    second_cylinder->values[0] = original_cylinder->values[0];
+    second_cylinder->values[1] = original_cylinder->values[1];
+    second_cylinder->values[2] = original_cylinder->values[2];
+    second_cylinder->values[3] = original_cylinder->values[3];
+    second_cylinder->values[4] = original_cylinder->values[4];
+    second_cylinder->values[5] = original_cylinder->values[5];
+
+    second_cylinder->values[6] = original_cylinder->values[6] * 1.5;
 }
 
 void Cylinder_Seg( pcl::PointCloud<PointT>::Ptr cloud,
@@ -254,51 +334,79 @@ int main(int argc, char **argv)
                    coefficients_cylinder_trunk->values[1] + coefficients_cylinder_trunk->values[4],
                    coefficients_cylinder_trunk->values[2] + coefficients_cylinder_trunk->values[5]};
 
-    //std::vector<pcl::PointXYZ> cloud_points = cloud_filtered->points;
     std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ> > cloud_points = cloud_filtered->points;
+    ROS_WARN("Hello %lu \n",  cloud_points.size());
 
+    int ij = 0;
     for (int i = 0; i < cloud_points.size(); i++) {
 
         Vec3 cloudPoint = {cloud_points[i].x, cloud_points[i].y, cloud_points[i].z};
-        if (CylTest_CapsFirst(point1, point2, coefficients_cylinder_trunk->values[6] * coefficients_cylinder_trunk->values[6], cloudPoint) != -1.0f) {
-            cloud_points.erase(index);
+        if (InsideCylinder(cloudPoint, coefficients_cylinder_trunk)) {
+            cloud_points.erase(cloud_points.begin() + i);
             i--;
+            ij++;
+
+        }
+
+    }
+    //ROS_WARN("Hi %lu %d\n",  cloud_points.size(), ij);
+
+    pcl::ModelCoefficients::Ptr coefficients_second_cylinder (new pcl::ModelCoefficients);
+    coefficients_second_cylinder->values.resize (7);
+    Setup_Second_Cylinder(coefficients_cylinder_trunk, coefficients_second_cylinder);
+
+    Vec3 second_cylinder_point1 = {coefficients_second_cylinder->values[0], coefficients_second_cylinder->values[1], coefficients_second_cylinder->values[2]};
+    Vec3 second_cylinder_point2 = {coefficients_second_cylinder->values[0] + coefficients_second_cylinder->values[3],
+                                   coefficients_second_cylinder->values[1] + coefficients_second_cylinder->values[4],
+                                   coefficients_second_cylinder->values[2] + coefficients_second_cylinder->values[5]};
+    ij = 0;
+    for (int i = 0; i < cloud_points.size(); i++) {
+
+        Vec3 cloudPoint = {cloud_points[i].x, cloud_points[i].y, cloud_points[i].z};
+        if (!InsideCylinder(cloudPoint, coefficients_second_cylinder)) {
+            cloud_points.erase(cloud_points.begin() + i);
+            i--;
+            ij++;
 
         }
 
     }
 
+    ROS_WARN("Hi %lu %d\n",  cloud_points.size(), ij);
+
+    pcl::PointCloud<PointT>::Ptr final_pointcloud (new pcl::PointCloud<PointT>);
+    final_pointcloud->points = cloud_points;
+
+    ROS_WARN("Hello %lu \n",  final_pointcloud->points.size());
+
+    ROS_WARN("Hello %lu \n",  cloud_filtered->points.size());
+
+
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
     viewer->initCameraParameters( );
     viewer->setShowFPS( false );
     viewer->setBackgroundColor (0, 0, 0);
-    viewer->addPointCloud<PointT> (cloud_filtered, "Filtered Cloud");
+    viewer->addPointCloud<PointT> (final_pointcloud, "Filtered Cloud");
 
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
     viewer2->initCameraParameters( );
     viewer2->setShowFPS( false );
     viewer2->setBackgroundColor (0, 0, 0);
-    viewer2->addPointCloud<PointT> (cloud_after_trunk_seg, "Filtered Cloud");
+    viewer2->addPointCloud<PointT> (cloud_filtered, "Filtered Cloud");
 
     while (!viewer->wasStopped ())
     {
-
-        //cout << coefficients_cylinder_trunk->values[0] << "a" << coefficients_cylinder_trunk->values[1] << "b"
-          //   << coefficients_cylinder_trunk->values[2] << "c" << coefficients_cylinder_trunk->values[3] << "d"
-            // << coefficients_cylinder_trunk->values[4] << "e" << coefficients_cylinder_trunk->values[5] << "f"
-             //<< coefficients_cylinder_trunk->values[6] << "g";
-        // 2.67866a1b-0.981821c0.587474d0.0747359e0.805785f0.275014g
-
         viewer->removeAllShapes();
-        viewer->updatePointCloud(cloud_filtered, "Filtered Cloud");
-        viewer->addCylinder(*coefficients_cylinder_trunk, "sadfsaf");
+        viewer->updatePointCloud(final_pointcloud, "Filtered Cloud");
+        viewer->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder");
+        viewer->addCylinder(*coefficients_second_cylinder, "second_cylinder");
         viewer->spinOnce(100);
 
         viewer2->removeAllShapes();
-        viewer2->updatePointCloud(cloud_after_trunk_seg, "Filtered Cloud");
-        viewer2->addCylinder(*coefficients_cylinder_trunk, "sadfs3af");
+        viewer2->updatePointCloud(cloud_filtered, "Filtered Cloud");
+        //viewer2->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder2");
+        //viewer2->addCylinder(*coefficients_second_cylinder, "second_cylinder2");
         viewer2->spinOnce(100);
-
     }
 
     return (0);
