@@ -38,6 +38,7 @@
 #include <vector>
 #include <Eigen/Dense>
 #include <pcl/ModelCoefficients.h>
+#include <pcl/segmentation/conditional_euclidean_clustering.h>
 
 #include <iostream>
 #include <fstream>
@@ -64,6 +65,12 @@ typedef pcl::Normal PointNT;
 #define TRUNKSEG_CYLDIST_THRESH 0.01
 #define TRUNKSEG_CYLRAD_MIN 0.09
 #define TRUNKSEG_CYLRAD_MAX 1
+
+#define BRANCH_NORM_KSEARCH_RADIUS 0.01
+#define BRANCHSEG_NORMDIST_WEIGHT 0.01
+#define BRANCHSEG_CYLDIST_THRESH 0.02
+#define BRANCHSEG_CYLRAD_MIN 0.01
+#define BRANCHSEG_CYLRAD_MAX 0.1
 
 
 struct Vec3
@@ -102,6 +109,10 @@ float CalculateDistanceFromAxis(Vec3 point_A, Vec3 line, Vec3 point_B) {
     float cross_magnitude = Calculate_Magnitude(BALineCross);
     float line_magnitude = Calculate_Magnitude(line);
     return (cross_magnitude/line_magnitude);
+}
+
+float DistanceBetweenTwoPoints(Vec3 point_A, Vec3 point_B) {
+    return sqrt(pow((point_A.x - point_B.x),2) + pow((point_A.x - point_B.x),2) + pow((point_A.x - point_B.x),2));
 }
 
 /**
@@ -175,10 +186,14 @@ void Frame_Filter( pcl::PointCloud<PointT>::Ptr cloud,
 
 void Lengthen_Cylinder(pcl::ModelCoefficients::Ptr coefficients_cylinder) {
 
-    coefficients_cylinder->values[3] *= 2;
-    coefficients_cylinder->values[4] *= 2;
-    coefficients_cylinder->values[5] *= 2;
-    coefficients_cylinder->values[6] *= 1.7;
+    coefficients_cylinder->values[0] -= (coefficients_cylinder->values[3] * .5);
+    coefficients_cylinder->values[1] -= (coefficients_cylinder->values[4] * .5);
+    coefficients_cylinder->values[2] -= (coefficients_cylinder->values[5] * .5);
+
+    coefficients_cylinder->values[3] *= 4;
+    coefficients_cylinder->values[4] *= 4;
+    coefficients_cylinder->values[5] *= 4;
+    coefficients_cylinder->values[6] *= 1.8;
 }
 
 void Setup_Second_Cylinder(pcl::ModelCoefficients::Ptr original_cylinder, pcl::ModelCoefficients::Ptr second_cylinder) {
@@ -226,6 +241,76 @@ void Cylinder_Seg( pcl::PointCloud<PointT>::Ptr cloud,
     extract.filter (*cloud_remainder);
 }
 
+bool customRegionGrowing (const pcl::PointXYZ& point_a, const pcl::PointXYZ& point_b, float squared_distance)
+{
+    Vec3 vec_a = {point_a.x, point_a.y, point_a.z};
+    Vec3 vec_b = {point_b.x, point_b.y, point_b.z};
+
+    float distance = DistanceBetweenTwoPoints(vec_a, vec_b);
+
+    if (DistanceBetweenTwoPoints(vec_a, vec_b) > 0.005) { //0.005 gives 10 clusters
+        return false;
+    } else {
+        return true;
+    }
+}
+
+/**
+ * From the Conditional Euclidean Clustering tutorial
+ * @param final_pointcloud the pointcloud to be processed
+ * @param clusters the object where the clusters are stored
+ */
+void segmentUsingCorrespondenceGrouping(pcl::PointCloud<PointT>::Ptr final_pointcloud, pcl::IndicesClustersPtr clusters) {
+    pcl::PointCloud<PointT>::Ptr cluster_pointcloud1 (new pcl::PointCloud<PointT>);
+    std::vector<pcl::PointXYZ> group1;
+    //cluster_pointcloud1->points = 2;
+
+    //ClusterBranches(final_pointcloud);
+    pcl::ConditionalEuclideanClustering<PointT> cec (true);
+    cec.setInputCloud (final_pointcloud);
+    cec.setConditionFunction (&customRegionGrowing);
+    cec.setClusterTolerance (500.0);
+    cec.setMinClusterSize (final_pointcloud->points.size () / 50);
+    cec.setMaxClusterSize (final_pointcloud->points.size ());
+    cec.segment (*clusters);
+
+    for (int i = 0; i < clusters->size(); ++i)
+    {
+        //ROS_WARN("Hi %lu \n",  (*clusters)[i].indices.size ());
+
+        for (int j = 0; j < (*clusters)[i].indices.size (); ++j) {
+            //group1.insert(final_pointcloud->points[(*clusters)[i].indices[j]]);
+        }
+    }
+}
+
+void regionGrowingSegmentation() {
+
+}
+
+void findBranches(pcl::PointCloud<PointT>::Ptr input_pointcloud, std::vector<pcl::ModelCoefficients::Ptr> coefficients_vector) {
+
+    pcl::PointCloud<PointNT>::Ptr branch_normals (new pcl::PointCloud<PointNT>);
+    branch_normals->points.resize(input_pointcloud->size());
+
+    pcl::ModelCoefficients::Ptr new_coefficients (new pcl::ModelCoefficients);
+    new_coefficients->values.resize (7);
+
+    pcl::PointCloud<PointT>::Ptr cloud_after (new pcl::PointCloud<PointT>);
+
+    coefficients_vector.push_back(new_coefficients);
+
+    Norm_Est( input_pointcloud, branch_normals, BRANCH_NORM_KSEARCH_RADIUS );
+    branch_normals->width = (int)branch_normals->points.size();
+
+    Cylinder_Seg( input_pointcloud, branch_normals,
+                  new_coefficients, cloud_after, BRANCHSEG_NORMDIST_WEIGHT,
+                  BRANCHSEG_CYLDIST_THRESH, BRANCHSEG_CYLRAD_MIN, BRANCHSEG_CYLRAD_MAX, pcl::SACMODEL_LINE);
+
+    input_pointcloud->points = cloud_after->points;
+
+}
+
 
 int main(int argc, char **argv)
 {
@@ -246,7 +331,7 @@ int main(int argc, char **argv)
     trunk_normals->points.resize(cloud_blob->size());
     pcl::PointCloud<PointT>::Ptr cloud_after_trunk_seg (new pcl::PointCloud<PointT> ());
 
-    DownSample( cloud_blob, cloud_DownSampled );
+    DownSample(cloud_blob, cloud_DownSampled );
     cloud_DownSampled->width = (int)cloud_DownSampled->points.size();
 
     Frame_Filter( cloud_DownSampled, cloud_filtered );
@@ -267,7 +352,6 @@ int main(int argc, char **argv)
         if (InsideCylinder(cloudPoint, coefficients_cylinder_trunk)) {
             cloud_points.erase(cloud_points.begin() + i);
             i--;
-
         }
     }
 
@@ -285,8 +369,28 @@ int main(int argc, char **argv)
         }
     }
 
+    pcl::PointCloud<PointT>::Ptr segmented_pointcloud (new pcl::PointCloud<PointT>);
+    segmented_pointcloud->points = cloud_points;
+    ROS_WARN("segmented pointcloud %lu", segmented_pointcloud->size());
+
     pcl::PointCloud<PointT>::Ptr final_pointcloud (new pcl::PointCloud<PointT>);
     final_pointcloud->points = cloud_points;
+
+    Frame_Filter(segmented_pointcloud, final_pointcloud );
+    final_pointcloud->width = (int)final_pointcloud->points.size();
+    ROS_WARN("final pointcloud %lu", final_pointcloud->size());
+
+    std::vector<pcl::ModelCoefficients::Ptr> coefficients_vector;
+
+    findBranches(final_pointcloud, coefficients_vector);
+
+    pcl::IndicesClustersPtr clusters (new pcl::IndicesClusters);
+    segmentUsingCorrespondenceGrouping(final_pointcloud, clusters);
+
+
+
+    //ROS_WARN("%lu", clusters.size());
+//    ROS_WARN("Hi %lu %d\n",  cloud_points.size(), si2ze);
 
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
     viewer->initCameraParameters( );
@@ -300,12 +404,13 @@ int main(int argc, char **argv)
     viewer2->setBackgroundColor (0, 0, 0);
     viewer2->addPointCloud<PointT> (cloud_filtered, "Filtered Cloud");
 
+
     while (!viewer->wasStopped ())
     {
         viewer->removeAllShapes();
         viewer->updatePointCloud(final_pointcloud, "Filtered Cloud");
-        viewer->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder");
-        viewer->addCylinder(*coefficients_second_cylinder, "second_cylinder");
+        //viewer->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder");
+        //viewer->addCylinder(*coefficients_second_cylinder, "second_cylinder");
         viewer->spinOnce(100);
 
         viewer2->removeAllShapes();
