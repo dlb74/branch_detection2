@@ -221,6 +221,7 @@ void Setup_Second_Cylinder(pcl::ModelCoefficients::Ptr original_cylinder, pcl::M
 void Cylinder_Seg( pcl::PointCloud<PointT>::Ptr cloud,
                    pcl::PointCloud<PointNT>::Ptr cloud_normals,
                    pcl::ModelCoefficients::Ptr coefficients_cylinder,
+                   pcl::ModelCoefficients::Ptr coefficients_cylinder_original,
                    pcl::PointCloud<PointT>::Ptr cloud_remainder,
                    double normalWeight, double distanceThreshold, double radiusMinimum, double radiusMaximum,
                    int modelType)
@@ -243,6 +244,7 @@ void Cylinder_Seg( pcl::PointCloud<PointT>::Ptr cloud,
     // Obtain the cylinder inliers and coefficients
     seg.segment (*inliers_trunk, *coefficients_cylinder);
 
+    coefficients_cylinder_original->values = coefficients_cylinder->values;
     Lengthen_Cylinder(coefficients_cylinder);
 
     // Extract cylinder inliers
@@ -275,9 +277,7 @@ void segmentUsingCorrespondenceGrouping(pcl::PointCloud<PointT>::Ptr final_point
 
     pcl::PointCloud<PointT>::Ptr cluster_pointcloud1 (new pcl::PointCloud<PointT>);
     std::vector<pcl::PointXYZ> group1;
-    //cluster_pointcloud1->points = 2;
 
-    //ClusterBranches(final_pointcloud);
     pcl::ConditionalEuclideanClustering<PointT> cec (true);
     cec.setInputCloud (final_pointcloud);
     cec.setConditionFunction (&customRegionGrowing);
@@ -288,10 +288,10 @@ void segmentUsingCorrespondenceGrouping(pcl::PointCloud<PointT>::Ptr final_point
 
     for (int i = 0; i < clusters->size(); ++i)
     {
-        //ROS_WARN("Hi %lu \n",  (*clusters)[i].indices.size ());
+        ROS_WARN("Cluster size: %lu ",  (*clusters)[i].indices.size ());
 
         for (int j = 0; j < (*clusters)[i].indices.size (); ++j) {
-            //group1.insert(final_pointcloud->points[(*clusters)[i].indices[j]]);
+            //group1.push_back(final_pointcloud->points[(*clusters)[i].indices[j]]);
         }
     }
 }
@@ -324,7 +324,6 @@ void regionGrowingSegmentation(pcl::PointCloud<PointT>::Ptr cloud) {
 
     while (!viewer.wasStopped ())
     {
-        ROS_WARN("into the function222222");
 
     }
 }
@@ -337,19 +336,19 @@ void findBranches(pcl::PointCloud<PointT>::Ptr input_pointcloud, std::vector<pcl
     pcl::ModelCoefficients::Ptr new_coefficients (new pcl::ModelCoefficients);
     new_coefficients->values.resize (7);
 
+    pcl::ModelCoefficients::Ptr spare_coefficients (new pcl::ModelCoefficients);
+    spare_coefficients->values.resize (7);
+
     pcl::PointCloud<PointT>::Ptr cloud_after (new pcl::PointCloud<PointT>);
 
     Norm_Est( input_pointcloud, branch_normals, BRANCH_NORM_KSEARCH_RADIUS );
     branch_normals->width = (int)branch_normals->points.size();
 
     Cylinder_Seg( input_pointcloud, branch_normals,
-                  new_coefficients, cloud_after, BRANCHSEG_NORMDIST_WEIGHT,
+                  new_coefficients, spare_coefficients, cloud_after, BRANCHSEG_NORMDIST_WEIGHT,
                   BRANCHSEG_CYLDIST_THRESH, BRANCHSEG_CYLRAD_MIN, BRANCHSEG_CYLRAD_MAX, pcl::SACMODEL_LINE);
-    ROS_WARN("new coefficients radius %f", new_coefficients->values[2]);
 
-    ROS_WARN("coefficients vector size %lu", coefficients_vector->size());
     coefficients_vector->push_back(new_coefficients);
-    ROS_WARN("coefficients vector size %lu", coefficients_vector->size());
 
 
     input_pointcloud->points = cloud_after->points;
@@ -372,6 +371,8 @@ int main(int argc, char **argv)
 
     pcl::ModelCoefficients::Ptr coefficients_cylinder_trunk (new pcl::ModelCoefficients);
     coefficients_cylinder_trunk->values.resize (7);
+    pcl::ModelCoefficients::Ptr coefficients_cylinder_trunk_original (new pcl::ModelCoefficients);
+    coefficients_cylinder_trunk->values.resize (7);
     pcl::PointCloud<PointNT>::Ptr trunk_normals (new pcl::PointCloud<PointNT>);
     trunk_normals->points.resize(cloud_blob->size());
     pcl::PointCloud<PointT>::Ptr cloud_after_trunk_seg (new pcl::PointCloud<PointT> ());
@@ -386,7 +387,7 @@ int main(int argc, char **argv)
     trunk_normals->width = (int)trunk_normals->points.size();
 
     Cylinder_Seg( cloud_filtered, trunk_normals,
-                  coefficients_cylinder_trunk, cloud_after_trunk_seg, TRUNKSEG_NORMDIST_WEIGHT,
+                  coefficients_cylinder_trunk, coefficients_cylinder_trunk_original, cloud_after_trunk_seg, TRUNKSEG_NORMDIST_WEIGHT,
                   TRUNKSEG_CYLDIST_THRESH, TRUNKSEG_CYLRAD_MIN, TRUNKSEG_CYLRAD_MAX, pcl::SACMODEL_CYLINDER);
 
     std::vector<pcl::PointXYZ, Eigen::aligned_allocator<pcl::PointXYZ> > cloud_points = cloud_filtered->points;
@@ -426,24 +427,67 @@ int main(int argc, char **argv)
     ROS_WARN("final pointcloud %lu", final_pointcloud->size());
 
     std::vector<pcl::ModelCoefficients::Ptr> coefficients_vector;
-
+/*
     for (int i = 0; i < 10;i++) {
         findBranches(final_pointcloud, &coefficients_vector);
         ROS_WARN("coefficients vector size %lu", coefficients_vector.size());
     }
+*/
     pcl::IndicesClustersPtr clusters (new pcl::IndicesClusters);
-    //segmentUsingCorrespondenceGrouping(final_pointcloud, clusters);
+    segmentUsingCorrespondenceGrouping(final_pointcloud, clusters);
+    ROS_WARN("Number of clusters: %lu \n", clusters->size());
     //regionGrowingSegmentation(final_pointcloud);
 
+    pcl::PointCloud <PointT>::Ptr fouth_nuageobjets(new pcl::PointCloud <PointT>);
+
+    /*
+    pcl::ExtractIndices<PointT> filtrerG (true);
+    filtrerG.setInputCloud(final_pointcloud);
+    filtrerG.setIndices((*clusters)[3].indices); //indices of the fouth cluster.
+    filtrerG.filter(*fouth_nuageobjets);
+*/
+/*
+    for (int it = clusters.begin (); it != clusters.end (); ++it)
+    {
+        fouth_nuageobjets->clear();
+        for (int pit = 0; pit < (*clusters)[3].indices.size(); pit++) {
+            fouth_nuageobjets->points.push_back(final_pointcloud->points[*pit]); //*
+        }
+        fouth_nuageobjets->width = fouth_nuageobjets->points.size ();
+        //fouth_nuageobjets->height = 1;
+        //fouth_nuageobjets->is_dense = true;
+    }*/
 
     //ROS_WARN("%lu", clusters.size());
 //    ROS_WARN("Hi %lu %d\n",  cloud_points.size(), si2ze);
 
-    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
-    viewer->initCameraParameters( );
-    viewer->setShowFPS( false );
-    viewer->setBackgroundColor (0, 0, 0);
-    viewer->addPointCloud<PointT> (final_pointcloud, "Filtered Cloud");
+
+
+
+
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer6 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
+    viewer6->initCameraParameters( );
+    viewer6->setShowFPS( false );
+    viewer6->setBackgroundColor (0, 0, 0);
+    viewer6->addPointCloud<PointT> (final_pointcloud, "Filtered Cloud");
+
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer5 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
+    viewer5->initCameraParameters( );
+    viewer5->setShowFPS( false );
+    viewer5->setBackgroundColor (0, 0, 0);
+    viewer5->addPointCloud<PointT> (cloud_filtered, "Filtered Cloud");
+
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer4 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
+    viewer4->initCameraParameters( );
+    viewer4->setShowFPS( false );
+    viewer4->setBackgroundColor (0, 0, 0);
+    viewer4->addPointCloud<PointT> (cloud_filtered, "Filtered Cloud");
+
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer3 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
+    viewer3->initCameraParameters( );
+    viewer3->setShowFPS( false );
+    viewer3->setBackgroundColor (0, 0, 0);
+    viewer3->addPointCloud<PointT> (cloud_filtered, "Filtered Cloud");
 
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer2 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
     viewer2->initCameraParameters( );
@@ -451,24 +495,46 @@ int main(int argc, char **argv)
     viewer2->setBackgroundColor (0, 0, 0);
     viewer2->addPointCloud<PointT> (cloud_filtered, "Filtered Cloud");
 
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
+    viewer->initCameraParameters( );
+    viewer->setShowFPS( false );
+    viewer->setBackgroundColor (0, 0, 0);
+    viewer->addPointCloud<PointT> (cloud_blob, "Filtered Cloud");
 
     while (!viewer->wasStopped ())
     {
-        viewer->removeAllShapes();
-        viewer->updatePointCloud(final_pointcloud, "Filtered Cloud");
-        //viewer->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder");
-        //viewer->addCylinder(*coefficients_second_cylinder, "second_cylinder");
-        for (int i = 0 ; i < coefficients_vector.size(); i++) {
-            viewer->addCylinder(*coefficients_vector[i], "inner_cylinder" + boost::lexical_cast<string>(i));
-        }
-        viewer->spinOnce(100);
+        viewer6->removeAllShapes();
+        viewer6->updatePointCloud(final_pointcloud, "Filtered Cloud6");
+
+        viewer5->removeAllShapes();
+        viewer5->updatePointCloud(cloud_filtered, "Filtered Cloud5");
+        viewer5->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder5");
+        viewer5->addCylinder(*coefficients_second_cylinder, "second_cylinder5");
+
+        viewer4->removeAllShapes();
+        viewer4->updatePointCloud(cloud_filtered, "Filtered Cloud4");
+        viewer4->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder4");
+
+        viewer3->removeAllShapes();
+        viewer3->updatePointCloud(cloud_filtered, "Filtered Cloud3");
+        viewer3->addCylinder(*coefficients_cylinder_trunk_original, "inner_cylinder3");
 
         viewer2->removeAllShapes();
-        viewer2->updatePointCloud(cloud_filtered, "Filtered Cloud");
-        //viewer2->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder2");
-        //viewer2->addCylinder(*coefficients_second_cylinder, "second_cylinder2");
-        viewer2->spinOnce(100);
+        viewer2->updatePointCloud(cloud_filtered, "Filtered Cloud2");
+
+        viewer->removeAllShapes();
+        viewer->updatePointCloud(cloud_blob, "Filtered Cloud");
+        viewer->spinOnce(100);
+
+
     }
 
     return (0);
 }
+
+/*
+        for (int i = 0 ; i < coefficients_vector.size(); i++) {
+            viewer->addCylinder(*coefficients_vector[i], "inner_cylinder" + boost::lexical_cast<string>(i));
+        }
+        viewer->spinOnce(100);
+*/
