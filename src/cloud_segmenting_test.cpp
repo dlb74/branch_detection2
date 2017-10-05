@@ -83,6 +83,9 @@ typedef pcl::Normal PointNT;
 #define BRANCHSEG_CYLRAD_MIN 0.01
 #define BRANCHSEG_CYLRAD_MAX 0.1
 
+#define MAX_TREE_LENGTH 3
+
+
 
 struct Vec3
 {
@@ -124,6 +127,10 @@ float CalculateDistanceFromAxis(Vec3 point_A, Vec3 line, Vec3 point_B) {
 
 float DistanceBetweenTwoPoints(Vec3 point_A, Vec3 point_B) {
     return sqrt(pow((point_A.x - point_B.x),2) + pow((point_A.x - point_B.x),2) + pow((point_A.x - point_B.x),2));
+}
+
+float calculatLength(float x, float y, float z) {
+    return sqrt((x * x) + (y * y) + (z * z));
 }
 
 /**
@@ -197,13 +204,22 @@ void Frame_Filter( pcl::PointCloud<PointT>::Ptr cloud,
 
 void Lengthen_Cylinder(pcl::ModelCoefficients::Ptr coefficients_cylinder) {
 
-    coefficients_cylinder->values[0] -= (coefficients_cylinder->values[3] * .5);
-    coefficients_cylinder->values[1] -= (coefficients_cylinder->values[4] * .5);
-    coefficients_cylinder->values[2] -= (coefficients_cylinder->values[5] * .5);
+    float length = calculatLength(coefficients_cylinder->values[3], coefficients_cylinder->values[4],
+            coefficients_cylinder->values[5]);
 
-    coefficients_cylinder->values[3] *= 4;
-    coefficients_cylinder->values[4] *= 4;
-    coefficients_cylinder->values[5] *= 4;
+    while (length < MAX_TREE_LENGTH) {
+
+        coefficients_cylinder->values[0] -= (coefficients_cylinder->values[3] * .5);
+        coefficients_cylinder->values[1] -= (coefficients_cylinder->values[4] * .5);
+        coefficients_cylinder->values[2] -= (coefficients_cylinder->values[5] * .5);
+
+        coefficients_cylinder->values[3] *= 4;
+        coefficients_cylinder->values[4] *= 4;
+        coefficients_cylinder->values[5] *= 4;
+
+        length  = calculatLength(coefficients_cylinder->values[3], coefficients_cylinder->values[4],
+                                 coefficients_cylinder->values[5]);
+    }
     coefficients_cylinder->values[6] *= 1.8;
 }
 
@@ -465,6 +481,12 @@ int main(int argc, char **argv)
 
 
 
+    boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer7 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
+    viewer7->initCameraParameters( );
+    viewer7->setShowFPS( false );
+    viewer7->setBackgroundColor (0, 0, 0);
+    viewer7->addPointCloud<PointT> (final_pointcloud, "Filtered Cloud");
+
     boost::shared_ptr<pcl::visualization::PCLVisualizer> viewer6 (new pcl::visualization::PCLVisualizer ("3D Viewer")); //vizualiser
     viewer6->initCameraParameters( );
     viewer6->setShowFPS( false );
@@ -503,8 +525,13 @@ int main(int argc, char **argv)
 
     while (!viewer->wasStopped ())
     {
+        viewer7->removeAllShapes();
+        viewer7->updatePointCloud(final_pointcloud, "Filtered Cloud6");
+
         viewer6->removeAllShapes();
         viewer6->updatePointCloud(final_pointcloud, "Filtered Cloud6");
+        viewer6->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder5");
+        viewer6->addCylinder(*coefficients_second_cylinder, "second_cylinder5");
 
         viewer5->removeAllShapes();
         viewer5->updatePointCloud(cloud_filtered, "Filtered Cloud5");
@@ -516,7 +543,7 @@ int main(int argc, char **argv)
         viewer4->addCylinder(*coefficients_cylinder_trunk, "inner_cylinder4");
 
         viewer3->removeAllShapes();
-        viewer3->updatePointCloud(cloud_filtered, "Filtered Cloud3");
+        viewer3->updatePointCloud(cloud_filtered, "Filterevizd Cloud3");
         viewer3->addCylinder(*coefficients_cylinder_trunk_original, "inner_cylinder3");
 
         viewer2->removeAllShapes();
